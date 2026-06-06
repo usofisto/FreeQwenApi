@@ -729,7 +729,9 @@ async function handleApiError(response, tokenObj, message, model, chatId, parent
         }
         const { hasValidTokens } = await import('./tokenManager.js');
         if (hasValidTokens() && retryCount < MAX_RETRY_COUNT) {
-            return sendMessage(message, model, chatId, parentId, files, null, null, null, chatType, size, waitForCompletion, retryCount + 1, onChunk);
+            // chatId/parentId сбрасываем: при смене аккаунта старый чат
+            // принадлежит прежнему токену и под новым «не существует».
+            return sendMessage(message, model, null, null, files, null, null, null, chatType, size, waitForCompletion, retryCount + 1, onChunk);
         }
         logError('Не осталось валидных токенов или исчерпаны попытки.');
         return { error: 'Все токены недействительны (401). Требуется повторная авторизация.', chatId };
@@ -753,7 +755,9 @@ async function handleApiError(response, tokenObj, message, model, chatId, parent
         authToken = null;
         const { hasValidTokens } = await import('./tokenManager.js');
         if (hasValidTokens() && retryCount < MAX_RETRY_COUNT) {
-            return sendMessage(message, model, chatId, parentId, files, null, null, null, chatType, size, waitForCompletion, retryCount + 1, onChunk);
+            // chatId/parentId сбрасываем: при смене аккаунта старый чат
+            // принадлежит прежнему токену и под новым «не существует».
+            return sendMessage(message, model, null, null, files, null, null, null, chatType, size, waitForCompletion, retryCount + 1, onChunk);
         }
         return { error: `Все токены заблокированы по лимиту (${hours}ч)`, chatId };
     }
@@ -766,8 +770,17 @@ async function handleApiError(response, tokenObj, message, model, chatId, parent
 export async function sendMessage(message, model = DEFAULT_MODEL, chatId = null, parentId = null, files = null, tools = null, toolChoice = null, systemMessage = null, chatType = 't2t', size = null, waitForCompletion = true, retryCount = 0, onChunk = null) {
     if (!availableModels) availableModels = getAvailableModelsFromFile();
 
+    const browserContext = getBrowserContext();
+    if (!browserContext) return { error: 'Браузер не инициализирован', chatId };
+
+    // Резолвим аккаунт ОДИН раз: одним и тем же токеном создаём чат и
+    // отправляем сообщение — иначе round-robin разнесёт их по разным
+    // аккаунтам и Qwen вернёт «chat is not exist».
+    const tokenObj = await resolveAuthToken(browserContext);
+    if (!tokenObj) return { error: 'Ошибка авторизации: не удалось получить токен', chatId };
+
     if (!chatId) {
-        const newChatResult = await createChatV2(model, 'Новый чат', 0, chatType);
+        const newChatResult = await createChatV2(model, 'Новый чат', 0, chatType, tokenObj);
         if (newChatResult.error) return { error: 'Не удалось создать чат: ' + newChatResult.error };
         chatId = newChatResult.chatId;
         logInfo(`Создан новый чат v2 с ID: ${chatId}`);
@@ -791,12 +804,6 @@ export async function sendMessage(message, model = DEFAULT_MODEL, chatId = null,
         const typeLabels = { t2i: 'изображение', t2v: 'видео' };
         logInfo(`Тип генерации: ${chatType} (${typeLabels[chatType] || chatType})${size ? `, размер: ${size}` : ''}`);
     }
-
-    const browserContext = getBrowserContext();
-    if (!browserContext) return { error: 'Браузер не инициализирован', chatId };
-
-    const tokenObj = await resolveAuthToken(browserContext);
-    if (!tokenObj) return { error: 'Ошибка авторизации: не удалось получить токен', chatId };
 
     let page = null;
     try {
@@ -1005,11 +1012,14 @@ export function getAuthToken() {
 
 // ─── createChatV2 ────────────────────────────────────────────────────────────
 
-export async function createChatV2(model = DEFAULT_MODEL, title = 'Новый чат', retryCount = 0, chatType = 't2t') {
+export async function createChatV2(model = DEFAULT_MODEL, title = 'Новый чат', retryCount = 0, chatType = 't2t', tokenObj = null) {
     const browserContext = getBrowserContext();
     if (!browserContext) return { error: 'Браузер не инициализирован' };
 
-    const tokenObj = await getAvailableToken();
+    // tokenObj может прийти от sendMessage — тогда создание чата и отправка
+    // идут под ОДНИМ аккаунтом (иначе round-robin создаст чат на одном
+    // аккаунте, а сообщение уйдёт под другим → «chat is not exist»).
+    if (!tokenObj) tokenObj = await getAvailableToken();
     if (tokenObj?.token) {
         authToken = tokenObj.token;
         logInfo(`Используется аккаунт для создания чата: ${tokenObj.id}`);
@@ -1054,7 +1064,7 @@ export async function createChatV2(model = DEFAULT_MODEL, title = 'Новый ч
         if (isTransient && retryCount < MAX_RETRY_COUNT) {
             logWarn(`Создание чата: ${result.status}, ретрай ${retryCount + 1}/${MAX_RETRY_COUNT} через ${RETRY_DELAY}мс...`);
             await delay(RETRY_DELAY);
-            return createChatV2(model, title, retryCount + 1, chatType);
+            return createChatV2(model, title, retryCount + 1, chatType, tokenObj);
         }
 
         const cleanError = isTransient
