@@ -12,7 +12,8 @@ import {
     CHAT_API_URL, CREATE_CHAT_URL, CHAT_PAGE_URL, TASK_STATUS_URL,
     PAGE_TIMEOUT, RETRY_DELAY, PAGE_POOL_SIZE,
     DEFAULT_MODEL, MAX_RETRY_COUNT,
-    TASK_POLL_MAX_ATTEMPTS, TASK_POLL_INTERVAL
+    TASK_POLL_MAX_ATTEMPTS, TASK_POLL_INTERVAL,
+    RATE_LIMIT_HOURS
 } from '../config.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -738,10 +739,10 @@ async function handleApiError(response, tokenObj, message, model, chatId, parent
     }
 
     if (response.status === 429 || (response.errorBody && response.errorBody.includes('RateLimited'))) {
-        let hours = 24;
+        let hours = RATE_LIMIT_HOURS;
         try {
             const rateInfo = JSON.parse(response.errorBody);
-            hours = Number(rateInfo.num) || 24;
+            hours = Number(rateInfo.num) || RATE_LIMIT_HOURS;
         } catch { /* errorBody might not be valid JSON */ }
 
         if (tokenObj?.id === 'browser') {

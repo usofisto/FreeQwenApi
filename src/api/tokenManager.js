@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logError } from '../logger/index.js';
-import { SESSION_DIR, ACCOUNTS_DIR } from '../config.js';
+import { SESSION_DIR, ACCOUNTS_DIR, RATE_LIMIT_HOURS } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -53,7 +53,7 @@ export function hasValidTokens() {
     return tokens.some(t => (!t.resetAt || new Date(t.resetAt).getTime() <= now) && !t.invalid);
 }
 
-export function markRateLimited(id, hours = 24) {
+export function markRateLimited(id, hours = RATE_LIMIT_HOURS) {
     const tokens = loadTokens();
     const idx = tokens.findIndex(t => t.id === id);
     if (idx !== -1) {

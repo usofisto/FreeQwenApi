@@ -33,6 +33,8 @@ export const MAX_HISTORY_LENGTH = Number(process.env.MAX_HISTORY_LENGTH) || 100;
 export const MAX_RETRY_COUNT = Number(process.env.MAX_RETRY_COUNT) || 3;
 export const TASK_POLL_MAX_ATTEMPTS = Number(process.env.TASK_POLL_MAX_ATTEMPTS) || 90;
 export const TASK_POLL_INTERVAL = Number(process.env.TASK_POLL_INTERVAL) || 2_000;
+// Фолбэк-длительность блокировки токена по rate-limit (часы), когда Qwen не прислал точное значение в ответе.
+export const RATE_LIMIT_HOURS = Number(process.env.QWEN_RATELIMIT_HOURS) || 24;
 
 // ─── Пути (относительно корня проекта) ───────────────────────────────────────
 export const SESSION_DIR = process.env.SESSION_DIR || 'session';
