@@ -52,6 +52,19 @@ npm run smoke
 http://localhost:3264/api
 ```
 
+## Конфигурация
+
+Все настройки задаются переменными окружения. Полный список с дефолтами и комментариями — в [`.env.example`](.env.example): порт, модель по умолчанию, таймауты, лимиты, пути, логирование, путь к Chrome и т.д.
+
+Переменные читаются из окружения процесса. Задайте нужные удобным способом:
+
+```bash
+export PORT=3264 DEFAULT_MODEL=qwen3.7-max   # bash
+$env:PORT=3264; npm start                    # PowerShell
+```
+
+либо через блок `environment:` в `docker-compose.yml` / флаги `-e` у `docker run`.
+
 ## Авторизация Qwen Chat
 
 Добавить аккаунт:
