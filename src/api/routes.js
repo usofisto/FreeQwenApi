@@ -12,7 +12,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { listTokens, markInvalid, markRateLimited, markValid, addTokenFromString, deleteAccount, decodeTokenInfo, updateAccountToken } from './tokenManager.js';
+import { listTokens, markInvalid, markRateLimited, markValid, addTokenFromString, deleteAccount, decodeTokenInfo, updateAccountToken, setLabel } from './tokenManager.js';
 import { FORGETMEAI_WATERMARK } from '../utils/branding.js';
 
 // Функция для генерирования детерминированного chatId на основе истории
@@ -1094,6 +1094,7 @@ router.get('/accounts', localOnly, sameOriginOnly, (req, res) => {
             else if (info.exp && info.exp < now) status = 'EXPIRED';
             return {
                 id: t.id,
+                label: t.label || '',
                 status,
                 exp: info.exp,
                 resetAt: t.resetAt || null,
@@ -1111,7 +1112,7 @@ router.post('/accounts', localOnly, sameOriginOnly, (req, res) => {
     try {
         const token = req.body?.token;
         if (!token) return res.status(400).json({ error: 'Не передан token' });
-        const result = addTokenFromString(token);
+        const result = addTokenFromString(token, req.body?.label);
         if (result.error) return res.status(400).json(result);
         logInfo(`Добавлен аккаунт через дашборд: ${result.id}`);
         res.json({ ok: true, id: result.id });
@@ -1164,6 +1165,19 @@ router.post('/accounts/:id/update', localOnly, sameOriginOnly, (req, res) => {
         res.json(result);
     } catch (error) {
         logError('Ошибка обновления токена аккаунта', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+// Установить/изменить человекочитаемый ярлык аккаунта (для различения в пуле).
+router.post('/accounts/:id/label', localOnly, sameOriginOnly, (req, res) => {
+    try {
+        const result = setLabel(req.params.id, req.body?.label);
+        if (result.error) return res.status(400).json(result);
+        logInfo(`Изменён ярлык аккаунта через дашборд: ${req.params.id}`);
+        res.json(result);
+    } catch (error) {
+        logError('Ошибка изменения ярлыка аккаунта', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 });
