@@ -148,11 +148,12 @@ function shouldPersistSessionContext(scope = null) {
 }
 
 // Глобальное хранилище для маппинга между сгенерированными ID и реальными Qwen chatId
-const chatIdMap = new Map();
+const chatIdMap = loadJsonMap(CHAT_MAP_FILE);
 
 function mapChatId(generatedId, qwenChatId) {
     if (generatedId) {
         chatIdMap.set(generatedId, qwenChatId);
+        scheduleSaveChatMap(); // Persist to disk
         logDebug(`Маппинг чата: ${generatedId} -> ${qwenChatId}`);
     }
 }
@@ -215,7 +216,53 @@ function isOpenWebUiMetaRequest(messages) {
 // Scoped-сессии (по conversation_id/chat_id) включены всегда.
 // Unscoped fallback по IP + User-Agent работает только в legacy-режиме
 // через ALLOW_UNSCOPED_SESSION_CHAT_RESTORE=true.
-const sessionToChatMap = new Map(); // session-key -> {chatId, parentId, timestamp}
+
+// --- Persistent session storage (survives restart) ---
+import { SESSION_DIR } from '../config.js';
+const __filename_sessions = fileURLToPath(import.meta.url);
+const __dirname_sessions = path.dirname(__filename_sessions);
+const SESSION_MAP_FILE = path.resolve(__dirname_sessions, '..', '..', SESSION_DIR, 'sessions.json');
+const CHAT_MAP_FILE = path.resolve(__dirname_sessions, '..', '..', SESSION_DIR, 'chat-mapping.json');
+
+function ensureSessionDir() {
+    const dir = path.dirname(SESSION_MAP_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function loadJsonMap(filePath) {
+    try {
+        ensureSessionDir();
+        if (fs.existsSync(filePath)) {
+            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const map = new Map(Object.entries(data));
+            logInfo(`Загружено ${map.size} записей из ${path.basename(filePath)}`);
+            return map;
+        }
+    } catch (e) { logWarn(`Не удалось загрузить ${filePath}: ${e.message}`); }
+    return new Map();
+}
+
+function saveJsonMap(map, filePath) {
+    try {
+        ensureSessionDir();
+        const obj = Object.fromEntries(map);
+        fs.writeFileSync(filePath, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (e) { logError(`Не удалось сохранить ${filePath}: ${e.message}`); }
+}
+
+// Debounced save — не пишем на диск при каждом запросе
+let sessionSaveTimer = null;
+let chatMapSaveTimer = null;
+function scheduleSaveSessions() {
+    if (sessionSaveTimer) clearTimeout(sessionSaveTimer);
+    sessionSaveTimer = setTimeout(() => saveJsonMap(sessionToChatMap, SESSION_MAP_FILE), 5000);
+}
+function scheduleSaveChatMap() {
+    if (chatMapSaveTimer) clearTimeout(chatMapSaveTimer);
+    chatMapSaveTimer = setTimeout(() => saveJsonMap(chatIdMap, CHAT_MAP_FILE), 5000);
+}
+
+const sessionToChatMap = loadJsonMap(SESSION_MAP_FILE); // session-key -> {chatId, parentId, timestamp}
 
 function getSessionKey(req) {
     // Создаём уникальный ключ сессии на основе IP и User-Agent
@@ -235,7 +282,7 @@ function getSavedChatId(req, scope = null) {
 
     for (const sessionKey of keysToTry) {
         const sessionData = sessionToChatMap.get(sessionKey);
-        if (sessionData && (Date.now() - sessionData.timestamp) < 3600000) { // 1 hour
+        if (sessionData && (Date.now() - sessionData.timestamp) < 86400000) { // 24 hours
             return sessionData;
         }
     }
@@ -252,6 +299,7 @@ function saveChatIdForSession(req, chatId, parentId, scope = null) {
         scope: normalizedScope,
         timestamp: Date.now()
     });
+    scheduleSaveSessions(); // Persist to disk
 
     const scopeSuffix = normalizedScope ? ` (scope=${normalizedScope})` : "";
     logDebug(`Saved chatId ${chatId} for session ${sessionKey.substring(0, 8)}${scopeSuffix}`);
@@ -259,7 +307,7 @@ function saveChatIdForSession(req, chatId, parentId, scope = null) {
 // Очистка старых сессий каждые 10 минут
 setInterval(() => {
     const now = Date.now();
-    const oneHourAgo = now - 3600000;
+    const oneHourAgo = now - 86400000; // 24 hours instead of 1
     let cleaned = 0;
     for (const [key, value] of sessionToChatMap.entries()) {
         if (value.timestamp < oneHourAgo) {

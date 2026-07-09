@@ -89,7 +89,7 @@ export const pagePool = {
         }
 
         const newPage = await getPage(context);
-        await newPage.goto(CHAT_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT });
+        await newPage.goto(CHAT_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
         if (!authToken) {
             try {

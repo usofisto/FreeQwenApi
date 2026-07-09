@@ -41,6 +41,7 @@ export async function initBrowser(visibleMode = true, skipManualRestart = false)
             browserInstance = await puppeteer.launch({
                 headless: !visibleMode,
                 slowMo: visibleMode ? 30 : 0,
+                protocolTimeout: 300000,
                 executablePath: process.env.CHROME_PATH || undefined,
                 args: [
                     '--no-sandbox', '--disable-setuid-sandbox',
