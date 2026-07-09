@@ -790,11 +790,33 @@ export async function sendMessage(message, model = DEFAULT_MODEL, chatId = null,
     if (!tokenObj) return { error: 'Ошибка авторизации: не удалось получить токен', chatId };
 
     if (!chatId) {
-        const newChatResult = await createChatV2(model, 'Новый чат', 0, chatType, tokenObj);
-        if (newChatResult.error) return { error: 'Не удалось создать чат: ' + newChatResult.error };
-        chatId = newChatResult.chatId;
-        logInfo(`Создан новый чат v2 с ID: ${chatId}`);
-    }
+            // Пытаемся найти последний активный чат из файла
+            const defaultChatFile = path.join(__dirname, '..', '..', 'session', 'default-chat.json');
+            let reused = false;
+            try {
+                if (fs.existsSync(defaultChatFile)) {
+                    const saved = JSON.parse(fs.readFileSync(defaultChatFile, 'utf8'));
+                    if (saved.chatId && saved.model === model && (Date.now() - saved.timestamp) < 86400000) {
+                        chatId = saved.chatId;
+                        logInfo(`♻️ Переиспользуем чат: ${chatId}`);
+                        reused = true;
+                    }
+                }
+            } catch (e) { logDebug(`Не удалось загрузить default chat: ${e.message}`); }
+
+            if (!reused) {
+                const newChatResult = await createChatV2(model, 'Новый чат', 0, chatType, tokenObj);
+                if (newChatResult.error) return { error: 'Не удалось создать чат: ' + newChatResult.error };
+                chatId = newChatResult.chatId;
+                logInfo(`Создан новый чат v2 с ID: ${chatId}`);
+                // Сохраняем как дефолтный для переиспользования
+                try {
+                    const dir = path.dirname(defaultChatFile);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    fs.writeFileSync(defaultChatFile, JSON.stringify({ chatId, model, timestamp: Date.now() }));
+                } catch (e) { logDebug(`Не удалось сохранить default chat: ${e.message}`); }
+            }
+        }
 
     const validated = validateAndPrepareMessage(message);
     if (validated.error) {
